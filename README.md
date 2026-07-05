@@ -14,13 +14,19 @@ headlessly.
 
 ```
 cc-session-setcwd [--originaldir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
+cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
 ```
 
 - `<sessionid>` — UUID of the session to move.
+- `<olddir>` — directory whose sessions should move in `--all` mode. It may no
+  longer exist on disk.
 - `<newdir>` — directory the session should live in from now on (must exist).
+- `--all` — move every session associated with `<olddir>`.
 - `--originaldir <dir>` — optional seatbelt: fail unless the session currently
   belongs to this directory. It may no longer exist on disk (that's the point).
   Without it, the session is located by scanning all project directories.
+  Single-session mode only.
+- `--dry-run` — in `--all` mode, list matching sessions without moving them.
 - `--trust` — accept Claude Code's trust prompt for `<newdir>` without asking
   (this is the default).
 - `--no-trust` — prompt on the terminal before accepting the trust prompt (or
@@ -47,7 +53,7 @@ the directory-trust latch. The Agent SDK (>= 0.3.201) implements it as
 `Query.setCwd(path, { trustAccepted, trustedDirectory })`, currently
 undocumented and absent from the published `Query` typings.
 
-The tool:
+In single-session mode, the tool:
 
 1. Locates the session with `getSessionInfo(sessionId, { dir? })` (with no
    `dir`, the SDK searches every project directory).
@@ -64,6 +70,11 @@ The tool:
 4. Verifies the response (`status: "ok"`, `transcript_relocated: true`) and
    independently confirms the session is now discoverable under the new
    directory before exiting 0.
+
+In `--all` mode, the tool lists sessions with `listSessions({ dir: olddir,
+includeWorktrees: false })`, filters to sessions whose recorded `cwd` matches
+`olddir`, then runs the same per-session move sequentially for each match. Use
+`--dry-run` to inspect the matched session IDs before moving anything.
 
 The move appends only a small `relocated` marker to the transcript; no user or
 assistant messages are added and no API calls are made.
