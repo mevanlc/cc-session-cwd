@@ -13,7 +13,7 @@ headlessly.
 ## Usage
 
 ```
-cc-session-setcwd [--originaldir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
+cc-session-setcwd [--olddir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
 cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
 ```
 
@@ -22,7 +22,7 @@ cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
   longer exist on disk.
 - `<newdir>` — directory the session should live in from now on (must exist).
 - `--all` — move every session associated with `<olddir>`.
-- `--originaldir <dir>` — optional seatbelt: fail unless the session currently
+- `--olddir <dir>` — optional seatbelt: fail unless the session currently
   belongs to this directory. It may no longer exist on disk (that's the point).
   Without it, the session is located by scanning all project directories.
   Single-session mode only.

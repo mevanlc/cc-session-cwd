@@ -7,7 +7,7 @@
 // --continue find it there).
 //
 // Usage:
-//   cc-session-setcwd [--originaldir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
+//   cc-session-setcwd [--olddir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
 //   cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
 
 import { parseArgs } from 'node:util';
@@ -32,7 +32,7 @@ Arguments:
 
 Options:
   --all                Move every session associated with <olddir>.
-  --originaldir <dir>  Sanity check: fail unless the session currently belongs
+  --olddir <dir>       Sanity check: fail unless the session currently belongs
                        to this directory. Without it, the session is located by
                        scanning all project directories. Single-session mode only.
   --dry-run            In --all mode, print matching sessions without moving them.
@@ -55,7 +55,7 @@ function parseCli() {
     parsed = parseArgs({
       options: {
         all: { type: 'boolean', default: false },
-        originaldir: { type: 'string' },
+        olddir: { type: 'string' },
         'dry-run': { type: 'boolean', default: false },
         trust: { type: 'boolean' },
         'no-trust': { type: 'boolean', default: false },
@@ -83,8 +83,8 @@ function parseCli() {
 
   const trust = !parsed.values['no-trust'];
   if (parsed.values.all) {
-    if (parsed.values.originaldir) {
-      console.error(`cc-session-setcwd: --originaldir cannot be used with --all; pass <olddir> as the first argument\n\n${USAGE}`);
+    if (parsed.values.olddir) {
+      console.error(`cc-session-setcwd: --olddir cannot be used with --all; pass <olddir> as the first argument\n\n${USAGE}`);
       process.exit(2);
     }
     const [oldDir, newDir] = parsed.positionals;
@@ -111,7 +111,7 @@ function parseCli() {
     mode: 'single',
     sessionId,
     newDir,
-    originaldir: parsed.values.originaldir,
+    olddir: parsed.values.olddir,
     trust,
     verbose: parsed.values.verbose,
   };
@@ -124,7 +124,7 @@ function canonicalDir(dir, label) {
   return realpathSync(abs);
 }
 
-// Unlike newdir, originaldir may legitimately no longer exist (the project was
+// Unlike newdir, olddir may legitimately no longer exist (the project was
 // moved) — canonicalize as far as the filesystem allows.
 function canonicalMaybeMissingDir(dir) {
   const abs = path.resolve(dir);
@@ -208,7 +208,7 @@ async function moveSession({ sessionId, newDir, oldDir, oldDirLabel, trust, log,
     if (!sessionInfo) {
       throw new Error(
         `session ${sessionId} not found` +
-        (oldDirLabel ? ` under ${oldDirLabel} (try omitting --originaldir to search everywhere)` : '')
+        (oldDirLabel ? ` under ${oldDirLabel} (try omitting --olddir to search everywhere)` : '')
       );
     }
   }
@@ -307,12 +307,12 @@ async function moveSession({ sessionId, newDir, oldDir, oldDirLabel, trust, log,
 
 async function runSingle(args, log) {
   const newDir = canonicalDir(args.newDir, 'newdir');
-  const oldDir = args.originaldir ? canonicalMaybeMissingDir(args.originaldir) : undefined;
+  const oldDir = args.olddir ? canonicalMaybeMissingDir(args.olddir) : undefined;
   const result = await moveSession({
     sessionId: args.sessionId,
     newDir,
     oldDir,
-    oldDirLabel: args.originaldir,
+    oldDirLabel: args.olddir,
     trust: args.trust,
     log,
   });
