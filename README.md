@@ -15,6 +15,7 @@ headlessly.
 ```
 cc-session-setcwd [--olddir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
 cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
+cc-session-setcwd --get <sessionid>
 ```
 
 - `<sessionid>` — UUID of the session to move.
@@ -22,6 +23,9 @@ cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
   longer exist on disk.
 - `<newdir>` — directory the session should live in from now on (must exist).
 - `--all` — move every session associated with `<olddir>`.
+- `--get <sessionid>` — print the session's current working directory on stdout
+  and exit; nothing is moved. A pure metadata read (no CLI spawn), so it's
+  instant. Combine with `--olddir` to scope the lookup to one project directory.
 - `--olddir <dir>` — optional seatbelt: fail unless the session currently
   belongs to this directory. It may no longer exist on disk (that's the point).
   Without it, the session is located by scanning all project directories.
@@ -33,7 +37,8 @@ cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
   fail if stdin is not a TTY).
 - `--verbose` — progress details on stderr.
 
-Exit codes: `0` moved (or already there), `1` error, `2` usage error.
+Exit codes: `0` moved (or already there, or `--get` succeeded), `1` error,
+`2` usage error.
 
 ## Install
 

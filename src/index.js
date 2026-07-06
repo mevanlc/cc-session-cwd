@@ -9,6 +9,7 @@
 // Usage:
 //   cc-session-setcwd [--olddir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
 //   cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
+//   cc-session-setcwd --get <sessionid>
 
 import { parseArgs } from 'node:util';
 import { existsSync, mkdirSync, rmSync, statSync, realpathSync } from 'node:fs';
@@ -22,6 +23,7 @@ const SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 const USAGE = `Usage:
   cc-session-setcwd [options] <sessionid> <newdir>
   cc-session-setcwd --all [options] <olddir> <newdir>
+  cc-session-setcwd --get <sessionid>
 
 Reassociate a Claude Code session with a new working directory (automated /cd).
 
@@ -32,6 +34,7 @@ Arguments:
 
 Options:
   --all                Move every session associated with <olddir>.
+  --get <sessionid>    Print the session's current working directory and exit.
   --olddir <dir>       Sanity check: fail unless the session currently belongs
                        to this directory. Without it, the session is located by
                        scanning all project directories. Single-session mode only.
@@ -55,6 +58,7 @@ function parseCli() {
     parsed = parseArgs({
       options: {
         all: { type: 'boolean', default: false },
+        get: { type: 'string' },
         olddir: { type: 'string' },
         'dry-run': { type: 'boolean', default: false },
         trust: { type: 'boolean' },
@@ -76,6 +80,22 @@ function parseCli() {
     console.error(`cc-session-setcwd: --trust and --no-trust cannot be combined\n\n${USAGE}`);
     process.exit(2);
   }
+  if (parsed.values.get !== undefined) {
+    if (parsed.values.all || parsed.values['dry-run'] || parsed.positionals.length !== 0) {
+      console.error(`cc-session-setcwd: --get takes a session UUID and no other arguments\n\n${USAGE}`);
+      process.exit(2);
+    }
+    if (!SESSION_UUID_RE.test(parsed.values.get)) {
+      fail(`"${parsed.values.get}" does not look like a session UUID`, 2);
+    }
+    return {
+      mode: 'get',
+      sessionId: parsed.values.get,
+      olddir: parsed.values.olddir,
+      verbose: parsed.values.verbose,
+    };
+  }
+
   if (parsed.positionals.length !== 2) {
     console.error(`cc-session-setcwd: expected exactly two arguments\n\n${USAGE}`);
     process.exit(2);
@@ -305,6 +325,23 @@ async function moveSession({ sessionId, newDir, oldDir, oldDirLabel, trust, log,
   return { changed: true, exitCode };
 }
 
+// Pure metadata read — no CLI spawn, no resume. With no --olddir the SDK scans
+// every project directory for the session.
+async function runGet(args, log) {
+  const lookupOpts = args.olddir ? { dir: canonicalMaybeMissingDir(args.olddir) } : undefined;
+  log(`looking up session ${args.sessionId}${lookupOpts ? ` in ${lookupOpts.dir}` : ' (all projects)'}`);
+  const info = await getSessionInfo(args.sessionId, lookupOpts);
+  if (!info) {
+    throw new Error(
+      `session ${args.sessionId} not found` +
+      (args.olddir ? ` under ${args.olddir} (try omitting --olddir to search everywhere)` : '')
+    );
+  }
+  if (!info.cwd) throw new Error(`session ${args.sessionId} has no recorded working directory`);
+  console.log(info.cwd);
+  return 0;
+}
+
 async function runSingle(args, log) {
   const newDir = canonicalDir(args.newDir, 'newdir');
   const oldDir = args.olddir ? canonicalMaybeMissingDir(args.olddir) : undefined;
@@ -387,9 +424,11 @@ async function runBulk(args, log) {
 async function main() {
   const args = parseCli();
   const log = args.verbose ? (m) => console.error(`[cc-session-setcwd] ${m}`) : () => {};
-  const exitCode = args.mode === 'bulk'
-    ? await runBulk(args, log)
-    : await runSingle(args, log);
+  const exitCode = args.mode === 'get'
+    ? await runGet(args, log)
+    : args.mode === 'bulk'
+      ? await runBulk(args, log)
+      : await runSingle(args, log);
   process.exit(exitCode);
 }
 
