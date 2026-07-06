@@ -1,5 +1,5 @@
 {
-  "name": "cc-session-setcwd",
+  "name": "cc-session-cwd",
   "version": "1.0.0",
   "description": "A CLI to update the cwd of existing Claude Code sessions.",
   "license": "MIT",
@@ -7,7 +7,7 @@
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "cc-session-setcwd": "src/index.js"
+    "cc-session-cwd": "src/index.js"
   },
   "engines": {
     "node": ">=18"

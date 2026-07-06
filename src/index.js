@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cc-session-setcwd — reassociate a Claude Code session with a new working directory.
+// cc-session-cwd — reassociate a Claude Code session with a new working directory.
 //
 // Automates what the interactive /cd command does, via the Agent SDK's set_cwd
 // control request (the same CLI-side handler /cd uses, including relocating the
@@ -7,9 +7,9 @@
 // --continue find it there).
 //
 // Usage:
-//   cc-session-setcwd [--olddir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
-//   cc-session-setcwd --all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
-//   cc-session-setcwd --get <sessionid>
+//   cc-session-cwd set [--olddir <dir>] [--no-trust] [--verbose] <sessionid> <newdir>
+//   cc-session-cwd set-all [--dry-run] [--no-trust] [--verbose] <olddir> <newdir>
+//   cc-session-cwd get [--olddir <dir>] [--verbose] <sessionid>
 
 import { parseArgs } from 'node:util';
 import { existsSync, mkdirSync, rmSync, statSync, realpathSync } from 'node:fs';
@@ -19,37 +19,47 @@ import readline from 'node:readline/promises';
 import { query, getSessionInfo, listSessions } from '@anthropic-ai/claude-agent-sdk';
 
 const SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CLI_NAME = 'cc-session-cwd';
 
 const USAGE = `Usage:
-  cc-session-setcwd [options] <sessionid> <newdir>
-  cc-session-setcwd --all [options] <olddir> <newdir>
-  cc-session-setcwd --get <sessionid>
+  cc-session-cwd set [options] <sessionid> <newdir>
+  cc-session-cwd set-all [options] <olddir> <newdir>
+  cc-session-cwd get [options] <sessionid>
 
 Reassociate a Claude Code session with a new working directory (automated /cd).
 
+Commands:
+  set                  Move one session to <newdir>.
+  set-all              Move every session associated with <olddir>.
+  get                  Print a session's current working directory and exit.
+
 Arguments:
   sessionid            UUID of the session to move
-  olddir               Directory whose sessions should move in --all mode
+  olddir               Directory whose sessions should move in set-all mode
   newdir               Directory the session should live in from now on
 
 Options:
-  --all                Move every session associated with <olddir>.
-  --get <sessionid>    Print the session's current working directory and exit.
   --olddir <dir>       Sanity check: fail unless the session currently belongs
                        to this directory. Without it, the session is located by
-                       scanning all project directories. Single-session mode only.
-  --dry-run            In --all mode, print matching sessions without moving them.
+                       scanning all project directories. set/get only.
+  --dry-run            In set-all mode, print matching sessions without moving them.
   --trust              Accept the trust prompt for <newdir> without asking
-                       (default).
+                       (default). set/set-all only.
   --no-trust           Ask interactively before accepting the trust prompt.
+                       set/set-all only.
   --verbose            Print progress details.
   -h, --help           Show this help.
 
-Exit codes: 0 moved (or already there), 1 error, 2 usage error.`;
+Exit codes: 0 success, 1 error, 2 usage error.`;
 
 function fail(msg, code = 1) {
-  console.error(`cc-session-setcwd: ${msg}`);
+  console.error(`${CLI_NAME}: ${msg}`);
   process.exit(code);
+}
+
+function usageError(msg) {
+  console.error(`${CLI_NAME}: ${msg}\n\n${USAGE}`);
+  process.exit(2);
 }
 
 function parseCli() {
@@ -57,8 +67,6 @@ function parseCli() {
   try {
     parsed = parseArgs({
       options: {
-        all: { type: 'boolean', default: false },
-        get: { type: 'string' },
         olddir: { type: 'string' },
         'dry-run': { type: 'boolean', default: false },
         trust: { type: 'boolean' },
@@ -69,45 +77,49 @@ function parseCli() {
       allowPositionals: true,
     });
   } catch (err) {
-    console.error(`cc-session-setcwd: ${err.message}\n\n${USAGE}`);
-    process.exit(2);
+    usageError(err.message);
   }
   if (parsed.values.help) {
     console.log(USAGE);
     process.exit(0);
   }
   if (parsed.values.trust && parsed.values['no-trust']) {
-    console.error(`cc-session-setcwd: --trust and --no-trust cannot be combined\n\n${USAGE}`);
-    process.exit(2);
+    usageError('--trust and --no-trust cannot be combined');
   }
-  if (parsed.values.get !== undefined) {
-    if (parsed.values.all || parsed.values['dry-run'] || parsed.positionals.length !== 0) {
-      console.error(`cc-session-setcwd: --get takes a session UUID and no other arguments\n\n${USAGE}`);
-      process.exit(2);
+
+  const [command, ...args] = parsed.positionals;
+  if (!command) {
+    usageError('expected a command: set, set-all, or get');
+  }
+
+  if (command === 'get') {
+    if (parsed.values['dry-run'] || parsed.values.trust !== undefined || parsed.values['no-trust']) {
+      usageError('get only supports --olddir and --verbose');
     }
-    if (!SESSION_UUID_RE.test(parsed.values.get)) {
-      fail(`"${parsed.values.get}" does not look like a session UUID`, 2);
+    if (args.length !== 1) {
+      usageError('get expects exactly one session UUID');
+    }
+    const [sessionId] = args;
+    if (!SESSION_UUID_RE.test(sessionId)) {
+      fail(`"${sessionId}" does not look like a session UUID`, 2);
     }
     return {
       mode: 'get',
-      sessionId: parsed.values.get,
+      sessionId,
       olddir: parsed.values.olddir,
       verbose: parsed.values.verbose,
     };
   }
 
-  if (parsed.positionals.length !== 2) {
-    console.error(`cc-session-setcwd: expected exactly two arguments\n\n${USAGE}`);
-    process.exit(2);
-  }
-
   const trust = !parsed.values['no-trust'];
-  if (parsed.values.all) {
+  if (command === 'set-all') {
     if (parsed.values.olddir) {
-      console.error(`cc-session-setcwd: --olddir cannot be used with --all; pass <olddir> as the first argument\n\n${USAGE}`);
-      process.exit(2);
+      usageError('--olddir cannot be used with set-all; pass <olddir> as the first argument');
     }
-    const [oldDir, newDir] = parsed.positionals;
+    if (args.length !== 2) {
+      usageError('set-all expects exactly two arguments: <olddir> <newdir>');
+    }
+    const [oldDir, newDir] = args;
     return {
       mode: 'bulk',
       oldDir,
@@ -118,12 +130,18 @@ function parseCli() {
     };
   }
 
-  if (parsed.values['dry-run']) {
-    console.error(`cc-session-setcwd: --dry-run requires --all\n\n${USAGE}`);
-    process.exit(2);
+  if (command !== 'set') {
+    usageError(`unknown command "${command}"`);
   }
 
-  const [sessionId, newDir] = parsed.positionals;
+  if (parsed.values['dry-run']) {
+    usageError('--dry-run requires set-all');
+  }
+  if (args.length !== 2) {
+    usageError('set expects exactly two arguments: <sessionid> <newdir>');
+  }
+
+  const [sessionId, newDir] = args;
   if (!SESSION_UUID_RE.test(sessionId)) {
     fail(`"${sessionId}" does not look like a session UUID`, 2);
   }
@@ -405,7 +423,7 @@ async function runBulk(args, log) {
       if (result.exitCode !== 0) warnings += 1;
     } catch (err) {
       failures += 1;
-      console.error(`cc-session-setcwd: session ${session.sessionId} failed: ${errorMessage(err)}`);
+      console.error(`${CLI_NAME}: session ${session.sessionId} failed: ${errorMessage(err)}`);
     }
   }
 
@@ -423,7 +441,7 @@ async function runBulk(args, log) {
 
 async function main() {
   const args = parseCli();
-  const log = args.verbose ? (m) => console.error(`[cc-session-setcwd] ${m}`) : () => {};
+  const log = args.verbose ? (m) => console.error(`[${CLI_NAME}] ${m}`) : () => {};
   const exitCode = args.mode === 'get'
     ? await runGet(args, log)
     : args.mode === 'bulk'
